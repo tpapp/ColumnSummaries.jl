@@ -5,13 +5,13 @@ export
     # general interface
     AbstractSummary, capture!, isomnivore,
     # specific summaries
-    StringCounter, NumRange, TimeRange
+    StringCounter, NumRange, TimeRange, ChainedSummaries
 
 using DataStructures: counter, Accumulator
 using Dates: TimeType, default_format, DateFormat
 using DocStringExtensions: SIGNATURES, TYPEDEF
 
-import Base: count, min, max, keys, values, collect
+import Base: count, min, max, extrema, keys, values, collect, getindex, length
 
 
 # general interface
@@ -61,7 +61,7 @@ abstract type AbstractCounter{T} <: AbstractSummary{T} end
 
 Record the range of elements.
 
-Supports `min` and `max`.
+Supports `min`, `max`, `extrema`.
 """
 abstract type AbstractRange{T} <: AbstractSummary{T} end
 
@@ -70,6 +70,8 @@ count(s::AbstractRange) = s.count
 max(s::AbstractRange) = s.count == 0 ? nothing : s.max
 
 min(s::AbstractRange) = s.count == 0 ? nothing : s.min
+
+extrema(s::AbstractRange) = s.count == 0 ? nothing : (s.min, s.max)
 
 
 # string counter
@@ -143,5 +145,29 @@ function capture!(s::TimeRange{T}, str::AbstractString) where T
     s.count += 1
     true
 end
+
+
+#
+
+struct ChainedSummaries{T <: Tuple{Vararg{AbstractSummary}}}
+    summaries::T
+end
+
+ChainedSummaries(summaries::AbstractSummary...) = ChainedSummaries(summaries)
+
+isomnivore(c::ChainedSummaries) = any(isomnivore, c.summaries)
+
+function capture!(c::ChainedSummaries, str::AbstractString)
+    for s in c.summaries        # FIXME unroll?
+        capture!(s, str) && return true
+    end
+    false
+end
+
+count(c::ChainedSummaries) = sum(count, c.summaries)
+
+getindex(c::ChainedSummaries, index::Int) = c.summaries[index]
+
+length(c::ChainedSummaries) = length(c.summaries)
 
 end # module

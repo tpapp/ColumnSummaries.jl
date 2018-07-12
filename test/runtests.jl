@@ -45,4 +45,26 @@ end
     @test count(s) == 2
     @test max(s) == 11
     @test min(s) == -9
+    @test extrema(s) == (-9, 11)
+end
+
+@testset "chaining" begin
+    c = ChainedSummaries(NumRange(Int), StringCounter())
+    @test length(c) == 2
+    @test isomnivore(c)
+    @test count(c) == 0
+    @test capture!(c, "1")
+    @test capture!(c, "-9")
+    @test capture!(c, "NaN")
+    @test capture!(c, "NaN")
+    @test capture!(c, "a fish")
+    @test count(c) == 5
+    s1 = c[1]
+    @test s1 isa NumRange{Int64}
+    @test count(s1) == 2
+    @test extrema(s1) == (-9, 1)
+    s2 = c[2]
+    @test s2 isa StringCounter
+    @test count(s2) == 3
+    @test collect(s2) == ["NaN" => 2, "a fish" => 1]
 end
