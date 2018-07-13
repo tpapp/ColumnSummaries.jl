@@ -11,7 +11,11 @@ using DataStructures: counter, Accumulator
 using Dates: TimeType, default_format, DateFormat
 using DocStringExtensions: SIGNATURES, TYPEDEF
 
-import Base: count, min, max, extrema, keys, values, collect, getindex, length
+import Base:
+    # generic
+    count, show, isempty, eltype,
+    # specific types
+    min, max, extrema, keys, values, collect, getindex, length
 
 
 # general interface
@@ -31,6 +35,10 @@ They should support the following interface:
   everything
 """
 abstract type AbstractSummary{T} end
+
+eltype(::AbstractSummary{T}) where T = T
+
+isempty(s::AbstractSummary) = count(s) == 0
 
 """
     capture!(summary::AbstractSummary, str::AbstractString)
@@ -74,6 +82,57 @@ min(s::AbstractRange) = s.count == 0 ? nothing : s.min
 extrema(s::AbstractRange) = s.count == 0 ? nothing : (s.min, s.max)
 
 
+# utilities
+
+"""
+    $SIGNATURES
+
+Summarize ratio as a percentage in exactly 3 characters.
+"""
+percentage_string(ratio::Real) =
+    ratio < 0.01 ? "<1%" : lpad("$(round(Int, ratio*100))%", 3)
+
+"""
+    $SIGNATURES
+
+Convert counts to strings, with percentages, padded to the same width.
+"""
+function padded_count_percentages(counts)
+    count_strings = string.(counts)
+    total = sum(counts)
+    max_width = maximum(length.(count_strings))
+    @. lpad(count_strings, max_width) * " (" *
+        percentage_string(counts / total) * ")"
+end
+
+_withindent(io::IO) = IOContext(io, :indent => get(io, :indent, 0) + 1)
+
+_withchain(io::IO) = IOContext(_withindent(io), :chain => true)
+
+_ischain(io::IO) = get(io, :chain, false)
+
+function _limit_length(io::IO, v, n = 10)
+    if get(io, :limit, true) && length(v) > n
+        v[1:n], true
+    else
+        v, false
+    end
+end
+
+function _newline_indent(io::IO)
+    println(io)
+    print(io, " " ^ (4 * get(io, :indent, 0)))
+end
+
+_print_type(io::IO, s::AbstractSummary) = show(io, typeof(s))
+
+function _print_captured(io::IO, s)
+    if !_ischain(io)
+        print(io, isempty(s) ? " (empty)" : " captured $(count(s))")
+    end
+end
+
+
 # string counter
 
 struct StringCounter{S <: AbstractString} <: AbstractCounter{S}
@@ -95,6 +154,19 @@ collect(s::StringCounter) = sort!(collect(s.acc); rev = true, by = last)
 keys(s::StringCounter) = first.(collect(s))
 
 values(s::StringCounter) = last.(collect(s))
+
+function show(io::IO, s::StringCounter)
+    ischain = _ischain(io)
+    _print_type(io, s)
+    _print_captured(io, s)
+    kv, istruncated = _limit_length(io, collect(s))
+    let io = _withindent(io)
+        for (c, s) in zip(padded_count_percentages(last.(kv)), first.(kv))
+            _newline_indent(io)
+            print(io, c, " \"", s, "\"")
+        end
+    end
+end
 
 
 # ranges
@@ -146,28 +218,51 @@ function capture!(s::TimeRange{T}, str::AbstractString) where T
     true
 end
 
+_print_type(io::IO, s::TimeRange{T}) where T = print(io, "TimeRange{$(T)}")
+
+function show(io::IO, s::AbstractRange)
+    _print_type(io, s)
+    _print_captured(io, s)
+    isempty(s) || print(io, " in ", extrema(s))
+end
+
 
 #
 
-struct ChainedSummaries{T <: Tuple{Vararg{AbstractSummary}}}
-    summaries::T
+struct ChainedSummaries{T <: Tuple{Vararg{AbstractSummary}},
+                        S} <: AbstractSummary{S}
+    ChainedSummaries(chain::Tuple{Vararg{AbstractSummary}}) =
+        new{typeof(chain), Union{(eltype.(chain))...}}(chain)
+    chain::T
 end
 
-ChainedSummaries(summaries::AbstractSummary...) = ChainedSummaries(summaries)
+ChainedSummaries(chain::AbstractSummary...) = ChainedSummaries(chain)
 
-isomnivore(c::ChainedSummaries) = any(isomnivore, c.summaries)
+isomnivore(c::ChainedSummaries) = any(isomnivore, c.chain)
 
 function capture!(c::ChainedSummaries, str::AbstractString)
-    for s in c.summaries        # FIXME unroll?
+    for s in c.chain        # FIXME unroll?
         capture!(s, str) && return true
     end
     false
 end
 
-count(c::ChainedSummaries) = sum(count, c.summaries)
+count(c::ChainedSummaries) = sum(count, c.chain)
 
-getindex(c::ChainedSummaries, index::Int) = c.summaries[index]
+getindex(c::ChainedSummaries, index::Int) = c.chain[index]
 
-length(c::ChainedSummaries) = length(c.summaries)
+length(c::ChainedSummaries) = length(c.chain)
+
+function show(io::IO, c::ChainedSummaries)
+    print(io, "ChainedSummaries")
+    _print_captured(io, c)
+    pc = padded_count_percentages(count.(c.chain))
+    let io = _withchain(io)
+        for (p, s) in zip(pc, c.chain)
+            _newline_indent(io)
+            print(io, p, " ", s)
+        end
+    end
+end
 
 end # module
