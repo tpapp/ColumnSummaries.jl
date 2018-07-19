@@ -8,7 +8,7 @@ export
     StringCounter, NumRange, TimeRange, ChainedSummaries
 
 using DataStructures: counter, Accumulator
-using Dates: TimeType, default_format, DateFormat
+using Dates: TimeType, default_format, DateFormat, DatePeriod
 using DocStringExtensions: SIGNATURES, TYPEDEF
 
 import Base:
