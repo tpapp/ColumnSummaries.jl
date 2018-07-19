@@ -89,8 +89,20 @@ extrema(s::AbstractRange) = s.count == 0 ? nothing : (s.min, s.max)
 
 Summarize ratio as a percentage in exactly 3 characters.
 """
-percentage_string(ratio::Real) =
-    ratio < 0.01 ? "<1%" : lpad("$(round(Int, ratio*100))%", 3)
+function percentage_string(count::Integer, total::Integer)
+    if count == 0
+        " ∅ "
+    elseif count == total
+        "all"
+    else
+        ratio = count/total
+        if ratio < 0.01
+            "<1%"
+        else
+            lpad("$(round(Int, ratio*100))%", 3)
+        end
+    end
+end
 
 """
     $SIGNATURES
@@ -98,11 +110,12 @@ percentage_string(ratio::Real) =
 Convert counts to strings, with percentages, padded to the same width.
 """
 function padded_count_percentages(counts)
+    isempty(counts) && return String[]
     count_strings = string.(counts)
     total = sum(counts)
     max_width = maximum(length.(count_strings))
     @. lpad(count_strings, max_width) * " (" *
-        percentage_string(counts / total) * ")"
+        percentage_string(counts, total) * ")"
 end
 
 _withindent(io::IO) = IOContext(io, :indent => get(io, :indent, 0) + 1)
@@ -132,6 +145,19 @@ function _print_captured(io::IO, s)
     end
 end
 
+_print_extrema(io::IO, s::AbstractRange) = print(io, " in ", extrema(s))
+
+
+_print_bits(io::IO, i::Integer) = print(io, " [≤$(ndigits(i; base = 2)) bits]")
+
+_print_bits(io::IO, d::DatePeriod) = _print_bits(io, d.value)
+
+function _print_bits(io::IO, s::AbstractRange)
+    a, b = extrema(s)
+    d = b - a
+    _print_bits(io::IO, d + oneunit(d))
+end
+
 
 # string counter
 
@@ -159,11 +185,18 @@ function show(io::IO, s::StringCounter)
     ischain = _ischain(io)
     _print_type(io, s)
     _print_captured(io, s)
+    n = length(s.acc)
+    print(io, ", $(n) distinct")
+    _print_bits(io, n)
     kv, istruncated = _limit_length(io, collect(s))
     let io = _withindent(io)
         for (c, s) in zip(padded_count_percentages(last.(kv)), first.(kv))
             _newline_indent(io)
             print(io, c, " \"", s, "\"")
+        end
+        if istruncated
+            _newline_indent(io)
+            print(io, "…")
         end
     end
 end
@@ -220,10 +253,13 @@ end
 
 _print_type(io::IO, s::TimeRange{T}) where T = print(io, "TimeRange{$(T)}")
 
-function show(io::IO, s::AbstractRange)
+function show(io::IO, s::AbstractRange{T}) where T
     _print_type(io, s)
     _print_captured(io, s)
-    isempty(s) || print(io, " in ", extrema(s))
+    if !isempty(s)
+        _print_extrema(io, s)
+        T <: Union{Integer,TimeType} && _print_bits(io, s)
+    end
 end
 
 
